@@ -69,7 +69,18 @@ fi
 # Bring opam env into this shell
 eval "$(opam env 2>/dev/null)"
 
-# Install liquidsoap (this takes several minutes on first run)
+# pandoc-include is required by liquidsoap's doc build step.
+# Must be installed system-wide (not in the project venv) so it's on PATH
+# during the opam/dune compilation. pipx is the cleanest tool for this.
+if ! command -v pandoc-include &>/dev/null; then
+  brew install pipx 2>/dev/null || true
+  pipx install pandoc-include 2>/dev/null || pip3 install --user pandoc-include
+  # Ensure pipx-installed binaries are on PATH for the rest of this session
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+ok "pandoc-include $(command -v pandoc-include || echo '?')"
+
+# Install liquidsoap (takes several minutes on first run; safe to retry if interrupted)
 opam install liquidsoap -y
 
 eval "$(opam env 2>/dev/null)"
