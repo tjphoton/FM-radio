@@ -37,14 +37,13 @@ def _get_handler():
         from acestep.handler import AceStepHandler
 
         handler = AceStepHandler()
-        # cpu_offload=True streams model layers CPU↔MPS so peak GPU memory stays lower.
-        # use_mlx_dit=True enables native MLX acceleration on Apple Silicon.
+        # ACE-Step auto-detects Apple Silicon and applies MLX optimizations.
+        # use_mlx_dit=True ensures the MLX DiT backend is preferred over MPS/torch.
         status, ok = handler.initialize_service(
             project_root=None,
             config_path="acestep-v15-turbo",
             device="auto",
             use_mlx_dit=True,
-            cpu_offload=True,
         )
         if not ok:
             raise RuntimeError(f"ACE-Step failed to initialize: {status}")
