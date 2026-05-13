@@ -1,0 +1,72 @@
+# Blue Hour Radio — Station Configuration
+
+station:
+  name: "Blue Hour Radio"
+  tagline: "The hour between day and night."
+  stream_url: "http://localhost:8000/live.mp3"
+  # Update stream_url when public access is configured
+
+dj:
+  name: "June Hartley"
+  voice: "piper"          # piper | kokoro
+  persona: >
+    June is a former music teacher with a soft, considered way of speaking.
+    She sounds like she's talking to exactly one person — you. She occasionally
+    quotes a poet before a song. She never rushes. She ends segments with
+    "take care of yourself tonight."
+
+meditation_voice:
+  name: "Guide"
+  voice: "kokoro"         # kokoro model for softer, slower delivery
+  model: "af_sky"         # Kokoro voice model (soft, calm)
+
+music:
+  genres:
+    - country
+    - folk
+    - jazz
+  generation_model: "ace-step"   # ace-step | yue
+  max_parallel: 2                # concurrent generation jobs on M-series
+
+# Location for weather context (open-meteo.com, free, no key)
+location:
+  latitude: 37.7749          # UPDATE: your actual coordinates
+  longitude: -122.4194       # UPDATE: your actual coordinates
+  timezone: "America/Los_Angeles"
+
+# Generation pipeline
+pipeline:
+  cron_interval_hours: 6           # how often generate_batch.py runs
+  buffer_target_hours: 6           # hours of audio to keep ahead
+  buffer_alert_hours: 2            # alert if buffer drops below this
+  tracks_per_batch: 10             # music tracks per generation run
+  dj_segments_per_batch: 10        # DJ intro clips per generation run
+  talkshows_per_batch: 1           # talk show episodes per run
+
+# Paths (relative to repo root; expand in code with os.path)
+paths:
+  library: "radio-library"
+  staging: "radio-library/.staging"
+  music: "radio-library/music"
+  dj_segments: "radio-library/dj-segments"
+  shows: "radio-library/shows"
+  station_ids: "radio-library/station-ids"
+  bootstrap: "radio-library/bootstrap"
+  logs: "radio-library/logs"
+
+# Piper TTS config
+piper:
+  model: "en_US-ryan-high.onnx"    # UPDATE after benchmarking; ryan = warm male, ljspeech = clear female
+  # Download models from: https://github.com/rhasspy/piper/releases
+
+# Kokoro TTS config
+kokoro:
+  model: "af_sky"                  # soft, calm female voice for meditation
+  speed: 0.9                       # slightly slower for relaxed delivery
+
+# Icecast streaming
+icecast:
+  host: "localhost"
+  port: 8000
+  mount: "/live.mp3"
+  source_password: "changeme"      # CHANGE before exposing publicly

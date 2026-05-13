@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blue Hour Radio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <div class="wordmark">
+      <span class="station-name">Blue Hour Radio</span>
+      <span class="dot">·</span>
+      <span class="tagline">The hour between day and night.</span>
+    </div>
+    <div class="live-pill" id="live-pill">LIVE</div>
+  </header>
+
+  <main>
+
+    <section class="now-playing">
+      <div class="np-label">Now Playing</div>
+      <div class="np-title" id="np-title">Connecting...</div>
+      <div class="np-meta" id="np-meta"></div>
+    </section>
+
+    <section class="player">
+      <audio id="stream" preload="none">
+        <source src="http://localhost:8000/live.mp3" type="audio/mpeg">
+      </audio>
+      <button class="play-btn" id="play-btn" aria-label="Play stream">
+        <svg id="icon-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <polygon points="5,3 19,12 5,21" fill="currentColor" stroke="none"/>
+        </svg>
+        <svg id="icon-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:none">
+          <rect x="6" y="4" width="4" height="16" fill="currentColor" stroke="none"/>
+          <rect x="14" y="4" width="4" height="16" fill="currentColor" stroke="none"/>
+        </svg>
+      </button>
+      <div class="volume-wrap">
+        <svg class="vol-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor" stroke="none"/>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+        </svg>
+        <input type="range" id="volume" min="0" max="1" step="0.02" value="0.8">
+      </div>
+    </section>
+
+    <section class="stats">
+      <div class="stat">
+        <span class="stat-value" id="listener-count">—</span>
+        <span class="stat-label">listeners</span>
+      </div>
+      <div class="stat-sep">·</div>
+      <div class="stat">
+        <span class="stat-value">128 kbps</span>
+        <span class="stat-label">MP3</span>
+      </div>
+    </section>
+
+    <section class="schedule">
+      <h2>On the schedule</h2>
+      <ul>
+        <li>
+          <span class="show-time">Monday 7pm</span>
+          <span class="show-name">Meditation Mondays</span>
+          <span class="show-desc">20 minutes to settle into the week.</span>
+        </li>
+        <li>
+          <span class="show-time">Tue – Fri 5pm</span>
+          <span class="show-name">Jazz at Dusk</span>
+          <span class="show-desc">45 minutes of cool jazz for the blue hour.</span>
+        </li>
+        <li>
+          <span class="show-time">Sunday 8am</span>
+          <span class="show-name">Sunday Morning Folk</span>
+          <span class="show-desc">An hour of acoustic folk. Nowhere to be.</span>
+        </li>
+      </ul>
+    </section>
+
+    <section class="about">
+      <p>
+        Blue Hour Radio plays all day, all night — no repeats for weeks.
+        Every track is original, generated here, for right now.
+        The DJ is AI. The mood is real.
+      </p>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>Blue Hour Radio</span>
+    <span class="dot">·</span>
+    <span>All music AI-generated</span>
+    <span class="dot">·</span>
+    <a href="http://localhost:8000/live.mp3" class="stream-link">Direct stream</a>
+  </footer>
+
+  <script>
+    // ---------------------------------------------------------------------------
+    // Player
+    // ---------------------------------------------------------------------------
+    const audio    = document.getElementById('stream');
+    const playBtn  = document.getElementById('play-btn');
+    const iconPlay = document.getElementById('icon-play');
+    const iconPause = document.getElementById('icon-pause');
+    const volumeEl = document.getElementById('volume');
+    const livePill = document.getElementById('live-pill');
+
+    audio.volume = parseFloat(volumeEl.value);
+
+    playBtn.addEventListener('click', () => {
+      if (audio.paused) {
+        // Force reload for live stream
+        audio.load();
+        audio.play().catch(console.error);
+      } else {
+        audio.pause();
+      }
+    });
+
+    audio.addEventListener('play', () => {
+      iconPlay.style.display = 'none';
+      iconPause.style.display = '';
+      livePill.classList.add('live-active');
+    });
+
+    audio.addEventListener('pause', () => {
+      iconPlay.style.display = '';
+      iconPause.style.display = 'none';
+      livePill.classList.remove('live-active');
+    });
+
+    volumeEl.addEventListener('input', () => {
+      audio.volume = parseFloat(volumeEl.value);
+    });
+
+    // ---------------------------------------------------------------------------
+    // Now Playing + listener count — polls Icecast stats every 10s
+    // ---------------------------------------------------------------------------
+    const ICECAST_STATS = 'http://localhost:8000/status-json.xsl';
+    const npTitle       = document.getElementById('np-title');
+    const npMeta        = document.getElementById('np-meta');
+    const listenerEl    = document.getElementById('listener-count');
+
+    async function updateNowPlaying() {
+      try {
+        const res  = await fetch(ICECAST_STATS, { cache: 'no-store' });
+        const data = await res.json();
+        const src  = data?.icestats?.source;
+
+        if (!src) {
+          npTitle.textContent = 'Stream offline';
+          listenerEl.textContent = '—';
+          return;
+        }
+
+        const title    = src.title    || src['stream-name'] || 'Blue Hour Radio';
+        const artist   = src.artist   || '';
+        const listeners = src.listeners ?? '—';
+
+        npTitle.textContent = title;
+        npMeta.textContent  = artist;
+        listenerEl.textContent = listeners;
+      } catch {
+        // Icecast unreachable — stream may be local-only
+        npTitle.textContent = 'Blue Hour Radio';
+        listenerEl.textContent = '—';
+      }
+    }
+
+    updateNowPlaying();
+    setInterval(updateNowPlaying, 10_000);
+
+    // ---------------------------------------------------------------------------
+    // Clock in footer (optional ambient touch)
+    // ---------------------------------------------------------------------------
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const clockEl = document.getElementById('clock');
+      if (clockEl) clockEl.textContent = `${h}:${m}`;
+    }
+    setInterval(updateClock, 30_000);
+    updateClock();
+  </script>
+
+</body>
+</html>

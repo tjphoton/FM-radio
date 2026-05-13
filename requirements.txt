@@ -1,0 +1,6 @@
+pyyaml>=6.0
+requests>=2.28
+numpy>=1.24
+soundfile>=0.12
+kokoro>=0.7
+ace-step>=0.1

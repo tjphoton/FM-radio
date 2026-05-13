@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+
+# Generated audio (large binary files — don't commit)
+radio-library/music/
+radio-library/dj-segments/
+radio-library/shows/
+radio-library/bootstrap/
+radio-library/.staging/
+
+# Keep directory structure but ignore contents
+!radio-library/music/.gitkeep
+!radio-library/dj-segments/.gitkeep
+!radio-library/shows/.gitkeep
+!radio-library/bootstrap/.gitkeep
+!radio-library/.staging/.gitkeep
+!radio-library/station-ids/.gitkeep
+!radio-library/logs/.gitkeep
+
+# Logs — keep structure, ignore content
+radio-library/logs/*.log
+
+# TTS models (large)
+*.onnx
+*.bin
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp

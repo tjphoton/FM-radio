@@ -1,0 +1,99 @@
+<?xml version="1.0"?>
+<!--
+  Blue Hour Radio — Icecast 2 Configuration
+  Install: brew install icecast
+  Start:   brew services start icecast
+  Admin:   http://localhost:8080/admin/ (admin / changeme-admin)
+  Stream:  http://localhost:8000/live.mp3
+  Stats:   http://localhost:8000/status-json.xsl
+
+  IMPORTANT before going public:
+    - Change source-password (must match liquidsoap/radio.liq)
+    - Change admin-password
+    - Change relay-password
+    - Bind admin to localhost (already set below) — do NOT expose :8080 publicly
+-->
+<icecast>
+
+  <!-- Listener port (HTTP stream) -->
+  <listen-socket>
+    <port>8000</port>
+    <bind-address>0.0.0.0</bind-address>
+  </listen-socket>
+
+  <!-- Admin port — bound to localhost only, never expose publicly -->
+  <listen-socket>
+    <port>8080</port>
+    <bind-address>127.0.0.1</bind-address>
+  </listen-socket>
+
+  <!-- Authentication -->
+  <authentication>
+    <source-password>changeme</source-password>       <!-- CHANGE: must match radio.liq -->
+    <relay-password>changeme-relay</relay-password>   <!-- CHANGE -->
+    <admin-user>admin</admin-user>
+    <admin-password>changeme-admin</admin-password>   <!-- CHANGE -->
+  </authentication>
+
+  <!-- Server identity -->
+  <hostname>localhost</hostname>
+  <location>Online</location>
+  <admin>qiuxinjie@gmail.com</admin>
+  <server-id>Blue Hour Radio</server-id>
+
+  <!-- Limits -->
+  <limits>
+    <clients>100</clients>
+    <sources>2</sources>
+    <queue-size>524288</queue-size>
+    <client-timeout>30</client-timeout>
+    <header-timeout>15</header-timeout>
+    <source-timeout>10</source-timeout>
+    <burst-on-connect>1</burst-on-connect>
+    <burst-size>65535</burst-size>
+  </limits>
+
+  <!-- CORS: required so the website can fetch stats via browser fetch() -->
+  <http-headers>
+    <header name="Access-Control-Allow-Origin" value="*"/>
+    <header name="Access-Control-Allow-Methods" value="GET, OPTIONS"/>
+    <header name="Access-Control-Allow-Headers" value="Content-Type"/>
+  </http-headers>
+
+  <!-- Mount point -->
+  <mount type="normal">
+    <mount-name>/live.mp3</mount-name>
+    <stream-name>Blue Hour Radio</stream-name>
+    <stream-description>The hour between day and night.</stream-description>
+    <stream-url>http://localhost:8000/live.mp3</stream-url>
+    <genre>Jazz, Folk, Country</genre>
+    <bitrate>128</bitrate>
+    <type>audio/mpeg</type>
+    <!-- public=1 enables listener count in /status-json.xsl -->
+    <public>1</public>
+    <!-- No source authentication on the mount level — handled at global level -->
+  </mount>
+
+  <!-- Paths -->
+  <paths>
+    <basedir>/usr/local/share/icecast</basedir>
+    <logdir>/usr/local/var/log/icecast</logdir>
+    <webroot>/usr/local/share/icecast/web</webroot>
+    <adminroot>/usr/local/share/icecast/admin</adminroot>
+    <pidfile>/usr/local/var/run/icecast.pid</pidfile>
+  </paths>
+
+  <!-- Logging -->
+  <logging>
+    <accesslog>access.log</accesslog>
+    <errorlog>error.log</errorlog>
+    <loglevel>3</loglevel>          <!-- 1=error, 2=warn, 3=info, 4=debug -->
+    <logsize>10000</logsize>        <!-- KB before rotation -->
+  </logging>
+
+  <!-- Security -->
+  <security>
+    <chroot>0</chroot>
+  </security>
+
+</icecast>

@@ -1,0 +1,34 @@
+You are writing a script for {show_name} on {station_name}.
+
+Show host: {host_name}
+Host voice: {host_persona}
+
+Show format: {show_format}
+Episode duration: approximately {duration_minutes} minutes when read aloud at a relaxed pace (about 130 words per minute)
+Target word count: {target_words} words
+
+Current context:
+  Date: {date}
+  Season: {season}
+  Time of day: {time_of_day}
+  Weather: {weather_description}
+
+Episode theme: {episode_theme}
+
+Script guidelines:
+  - Write in the host's voice throughout — soft, unhurried, directly addressing one listener
+  - Use natural spoken language: contractions, pauses marked with "..." or em-dashes
+  - Structure:
+      Opening (30-45 sec): Welcome, brief grounding in the present moment
+      Main body ({body_minutes} min): Core content (meditation guidance, topic exploration)
+      Closing (30-45 sec): Gentle landing, invite the listener to carry the feeling
+  - For meditation scripts: use second-person ("notice your breath", "let your shoulders drop")
+  - Do not use section headers in the output — write it as continuous spoken prose
+  - Do not break the fourth wall or mention the radio station within the script
+  - Pauses: mark significant breath moments with [pause] on its own line
+  - The script should feel earned, not rushed — let ideas breathe
+
+Show-specific notes:
+{show_notes}
+
+Output ONLY the spoken script text, ready to be read by TTS. No JSON, no headers, no stage directions except [pause].
