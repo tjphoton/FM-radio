@@ -1,12 +1,12 @@
 """
-ACE-Step music generation wrapper.
+ACE-Step 1.5 music generation wrapper.
 
-Takes a text prompt and produces an MP3 file in the staging directory.
-Respects max_parallel from config.yaml (managed by generate_batch.py).
+Uses the ACE-Step 1.5 Python API directly (AceStepHandler + generate_music).
+Runs in turbo mode (8 steps) with MLX acceleration on Apple Silicon.
 """
 
 import logging
-import subprocess
+import os
 import sys
 import time
 from pathlib import Path
@@ -17,9 +17,8 @@ log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).parent.parent
 
-# Lazy singleton so generate_batch.py can import this module without
-# triggering a multi-GB model load at import time.
-_pipeline = None
+# Lazy singleton: avoid model load at import time.
+_dit_handler = None
 
 
 def load_config() -> dict:
@@ -27,14 +26,26 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
-def _get_pipeline():
-    global _pipeline
-    if _pipeline is None:
-        from acestep.pipeline_ace_step import ACEStepPipeline
-        # MPS (Apple Silicon) is auto-detected; dtype falls back to float32 on MPS.
-        # cpu_offload keeps peak RAM reasonable when not on CUDA.
-        _pipeline = ACEStepPipeline(cpu_offload=False)
-    return _pipeline
+def _get_handler():
+    global _dit_handler
+    if _dit_handler is None:
+        from acestep.handler import AceStepHandler
+        from acestep.core.generation.handler.init_service_orchestrator import InitServiceMixin  # noqa: ensure mixin loaded
+
+        handler = AceStepHandler()
+        # "acestep-v15-turbo" downloads ~4 GB on first run to ~/.cache/ace-step/
+        # use_mlx_dit=True enables MLX acceleration on Apple Silicon (M-series)
+        status, ok = handler.initialize_service(
+            project_root=None,
+            config_path="acestep-v15-turbo",
+            device="auto",
+            use_mlx_dit=True,
+        )
+        if not ok:
+            raise RuntimeError(f"ACE-Step failed to initialize: {status}")
+        log.info("ACE-Step 1.5 initialized: %s", status)
+        _dit_handler = handler
+    return _dit_handler
 
 
 def generate_track(
@@ -45,95 +56,86 @@ def generate_track(
     bpm: int = 80,
 ) -> bool:
     """
-    Generate a music track using ACE-Step Python API.
+    Generate a music track using ACE-Step 1.5.
 
-    genre and bpm are appended to the prompt text so the model sees them;
-    they are not separate CLI flags.
+    Saves an MP3 directly to output_path.
     Returns True on success, False on failure.
     """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_wav = output_path.with_suffix(".tmp.wav")
+    from acestep.inference import GenerationConfig, GenerationParams, generate_music
 
-    # Enrich the prompt with structured tags ACE-Step understands
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Enrich prompt with genre tag if not already mentioned
     full_prompt = prompt
     if genre and genre.lower() not in prompt.lower():
         full_prompt = f"{genre}, {full_prompt}"
-    if bpm:
-        full_prompt = f"{full_prompt}, {bpm} bpm"
 
     log.info("Generating track: %s", output_path.name)
     start = time.monotonic()
 
-    try:
-        pipeline = _get_pipeline()
-
-        output_paths = pipeline(
-            prompt=full_prompt,
-            lyrics="",
-            audio_duration=float(duration_seconds),
-            save_path=str(tmp_wav),
-            format="wav",
-            infer_step=60,
-            guidance_scale=15.0,
-        )
-
-        # output_paths is [wav_path, json_path]; pick the first .wav
-        actual_wav = None
-        for p in output_paths:
-            if isinstance(p, str) and p.endswith(".wav"):
-                actual_wav = Path(p)
-                break
-
-        if actual_wav is None or not actual_wav.exists() or actual_wav.stat().st_size < 10_000:
-            log.error("ACE-Step produced no usable output for %s", output_path.name)
-            return False
-
-        _convert_to_mp3(actual_wav, output_path)
-        actual_wav.unlink(missing_ok=True)
-        # Remove the companion JSON params file if present
-        json_companion = actual_wav.with_suffix(".json")
-        json_companion.unlink(missing_ok=True)
-
-        elapsed = time.monotonic() - start
-        log.info(
-            "Track generated in %.1fs (%.1fx realtime): %s",
-            elapsed,
-            elapsed / duration_seconds,
-            output_path.name,
-        )
-
-        if elapsed > duration_seconds * 2:
-            log.warning(
-                "BENCHMARK WARNING: %.1fs > 2x realtime for %ds track. "
-                "Consider switching to 4h cron + 8 shorter tracks.",
-                elapsed,
-                duration_seconds,
+    # Use a temp dir so generate_music can save the UUID-named file,
+    # then we rename it to the caller's desired path.
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            params = GenerationParams(
+                caption=full_prompt,
+                lyrics="[Instrumental]",
+                duration=float(duration_seconds),
+                bpm=bpm if bpm else None,
+                inference_steps=8,       # turbo mode
+                thinking=False,           # skip LLM reasoning — not needed for bg music
+                enable_normalization=True,
+            )
+            config = GenerationConfig(
+                batch_size=1,
+                use_random_seed=True,
+                audio_format="mp3",
+                mp3_bitrate="192k",
+                mp3_sample_rate=44100,
             )
 
-        return True
+            handler = _get_handler()
+            result = generate_music(
+                dit_handler=handler,
+                llm_handler=None,
+                params=params,
+                config=config,
+                save_dir=tmp_dir,
+            )
 
-    except Exception as exc:
-        log.error("Unexpected error generating %s: %s", output_path.name, exc, exc_info=True)
-        tmp_wav.unlink(missing_ok=True)
-        return False
+            if not result.success or not result.audios:
+                log.error("ACE-Step generation failed for %s: %s", output_path.name, result.error)
+                return False
 
+            saved_path = result.audios[0].get("path", "")
+            if not saved_path or not Path(saved_path).exists():
+                log.error("ACE-Step produced no output file for %s", output_path.name)
+                return False
 
-def _convert_to_mp3(wav_path: Path, mp3_path: Path) -> None:
-    result = subprocess.run(
-        [
-            "ffmpeg", "-y",
-            "-i", str(wav_path),
-            "-codec:a", "libmp3lame",
-            "-qscale:a", "2",
-            "-ar", "44100",
-            str(mp3_path),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
+            # Move out of temp dir before it's cleaned up
+            import shutil
+            shutil.copy2(saved_path, output_path)
+
+        except Exception as exc:
+            log.error("Unexpected error generating %s: %s", output_path.name, exc, exc_info=True)
+            return False
+
+    elapsed = time.monotonic() - start
+    log.info(
+        "Track generated in %.1fs (%.1fx realtime): %s",
+        elapsed,
+        elapsed / duration_seconds,
+        output_path.name,
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg conversion failed: {result.stderr[-300:]}")
+    if elapsed > duration_seconds * 2:
+        log.warning(
+            "BENCHMARK WARNING: %.1fs > 2x realtime for %ds track. "
+            "Consider switching to 4h cron + 8 shorter tracks.",
+            elapsed,
+            duration_seconds,
+        )
+    return True
 
 
 def benchmark(cfg: dict) -> None:
@@ -141,7 +143,8 @@ def benchmark(cfg: dict) -> None:
     staging.mkdir(parents=True, exist_ok=True)
     test_path = staging / "benchmark_track.mp3"
 
-    print("Running ACE-Step benchmark (3-minute track)...")
+    print("Running ACE-Step 1.5 benchmark (3-minute track, turbo mode)...")
+    print("First run will download the model (~4 GB) — this may take several minutes.")
     start = time.monotonic()
     ok = generate_track(
         prompt="Soft jazz piano trio, slow ballad, intimate late-night feel, brushed drums",
@@ -160,7 +163,7 @@ def benchmark(cfg: dict) -> None:
             print("FAIL — switch to 4h cron with 8 shorter tracks + bootstrap supplement")
         test_path.unlink(missing_ok=True)
     else:
-        print("Benchmark FAILED — check ACE-Step installation")
+        print("Benchmark FAILED — check logs above")
 
 
 if __name__ == "__main__":

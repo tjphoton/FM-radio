@@ -4,5 +4,5 @@ numpy>=1.24
 soundfile>=0.12
 kokoro>=0.7
 piper-tts
-# ace-step PyPI package is broken; install from source:
-# pip install git+https://github.com/ace-step/ACE-Step.git
+# ace-step: install from the 1.5 source repo (includes MLX support for Apple Silicon):
+# pip install git+https://github.com/ace-step/ACE-Step-1.5.git

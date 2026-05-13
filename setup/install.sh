@@ -131,7 +131,7 @@ pip install --quiet \
 
 # ace-step PyPI package has a broken sdist (setup.py reads requirements.txt
 # that isn't bundled). Install from GitHub source instead.
-pip install --quiet "git+https://github.com/ace-step/ACE-Step.git"
+pip install --quiet "git+https://github.com/ace-step/ACE-Step-1.5.git"
 
 ok "Python packages installed (including piper-tts, ace-step)"
 
