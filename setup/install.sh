@@ -73,9 +73,9 @@ eval "$(opam env 2>/dev/null)"
 # Must be installed system-wide (not in the project venv) so it's on PATH
 # during the opam/dune compilation. pipx is the cleanest tool for this.
 if ! command -v pandoc-include &>/dev/null; then
-  brew install pipx 2>/dev/null || true
-  pipx install pandoc-include 2>/dev/null || pip3 install --user pandoc-include
-  # Ensure pipx-installed binaries are on PATH for the rest of this session
+  brew install pipx
+  pipx install pandoc-include
+  # pipx installs to ~/.local/bin — ensure it's on PATH for this session
   export PATH="$HOME/.local/bin:$PATH"
 fi
 ok "pandoc-include $(command -v pandoc-include || echo '?')"
