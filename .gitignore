@@ -29,6 +29,9 @@ radio-library/logs/*.log
 *.onnx
 *.bin
 
+# Secrets — never commit
+secrets.yaml
+
 # macOS
 .DS_Store
 

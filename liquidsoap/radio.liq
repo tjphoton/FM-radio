@@ -16,7 +16,10 @@
 # Paths (keep in sync with config.yaml)
 # ---------------------------------------------------------------------------
 
-library_root   = "RADIO_ROOT/radio-library"
+# Set RADIO_ROOT in your environment (launchd plist or shell profile).
+# Default: parent of the liquidsoap/ directory — works when run as:
+#   liquidsoap liquidsoap/radio.liq   (from repo root)
+library_root = getenv("RADIO_ROOT") ^ "/radio-library"
 music_dir      = library_root ^ "/music"
 dj_dir         = library_root ^ "/dj-segments"
 shows_dir      = library_root ^ "/shows"
@@ -115,7 +118,7 @@ output.icecast(
   %mp3(bitrate=128, samplerate=44100, stereo=true),
   host="localhost",
   port=8000,
-  password="changeme",      # must match icecast.xml source-password
+  password=getenv("ICECAST_SOURCE_PASSWORD"),
   mount="/live.mp3",
   name="Blue Hour Radio",
   description="The hour between day and night.",

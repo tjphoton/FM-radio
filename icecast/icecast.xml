@@ -1,17 +1,15 @@
 <?xml version="1.0"?>
 <!--
-  Blue Hour Radio — Icecast 2 Configuration
+  Blue Hour Radio — Icecast 2 Configuration TEMPLATE
+  setup/install.sh copies this to /usr/local/etc/icecast.xml with real passwords injected.
+
   Install: brew install icecast
   Start:   brew services start icecast
-  Admin:   http://localhost:8080/admin/ (admin / changeme-admin)
+  Admin:   http://localhost:8080/admin/ (localhost only — do NOT expose :8080 publicly)
   Stream:  http://localhost:8000/live.mp3
   Stats:   http://localhost:8000/status-json.xsl
 
-  IMPORTANT before going public:
-    - Change source-password (must match liquidsoap/radio.liq)
-    - Change admin-password
-    - Change relay-password
-    - Bind admin to localhost (already set below) — do NOT expose :8080 publicly
+  Passwords come from secrets.yaml (gitignored). Do not put real passwords here.
 -->
 <icecast>
 

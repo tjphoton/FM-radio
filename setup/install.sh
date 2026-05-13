@@ -121,11 +121,29 @@ print('  Kokoro ready.')
 step "Installing Icecast config..."
 
 ICECAST_CONF_DIR="/usr/local/etc"
-if [ -d "$ICECAST_CONF_DIR" ]; then
-  cp "$REPO_ROOT/icecast/icecast.xml" "$ICECAST_CONF_DIR/icecast.xml"
-  ok "Icecast config installed at $ICECAST_CONF_DIR/icecast.xml"
+SECRETS_FILE="$REPO_ROOT/secrets.yaml"
+
+# Read passwords from secrets.yaml; fall back to placeholders with a warning
+if [ -f "$SECRETS_FILE" ]; then
+  ICECAST_SOURCE_PWD=$(python3 -c "import yaml; d=yaml.safe_load(open('$SECRETS_FILE')); print(d['icecast']['source_password'])" 2>/dev/null || echo "changeme")
+  ICECAST_RELAY_PWD=$(python3  -c "import yaml; d=yaml.safe_load(open('$SECRETS_FILE')); print(d['icecast']['relay_password'])"  2>/dev/null || echo "changeme-relay")
+  ICECAST_ADMIN_PWD=$(python3  -c "import yaml; d=yaml.safe_load(open('$SECRETS_FILE')); print(d['icecast']['admin_password'])"  2>/dev/null || echo "changeme-admin")
 else
-  warn "Could not find $ICECAST_CONF_DIR — copy icecast/icecast.xml manually"
+  warn "secrets.yaml not found — using placeholder passwords. Run: cp secrets.yaml.example secrets.yaml"
+  ICECAST_SOURCE_PWD="changeme"
+  ICECAST_RELAY_PWD="changeme-relay"
+  ICECAST_ADMIN_PWD="changeme-admin"
+fi
+
+if [ -d "$ICECAST_CONF_DIR" ]; then
+  sed \
+    -e "s|<source-password>changeme</source-password>|<source-password>$ICECAST_SOURCE_PWD</source-password>|" \
+    -e "s|<relay-password>changeme-relay</relay-password>|<relay-password>$ICECAST_RELAY_PWD</relay-password>|" \
+    -e "s|<admin-password>changeme-admin</admin-password>|<admin-password>$ICECAST_ADMIN_PWD</admin-password>|" \
+    "$REPO_ROOT/icecast/icecast.xml" > "$ICECAST_CONF_DIR/icecast.xml"
+  ok "Icecast config installed at $ICECAST_CONF_DIR/icecast.xml (with real passwords)"
+else
+  warn "Could not find $ICECAST_CONF_DIR — run: sudo mkdir -p $ICECAST_CONF_DIR"
 fi
 
 # ---------------------------------------------------------------------------
@@ -150,6 +168,15 @@ sudo pmset -a sleep 0 disksleep 0 2>/dev/null || warn "Could not set pmset — d
 # 9. Launchd plist for Liquidsoap
 # ---------------------------------------------------------------------------
 step "Installing Liquidsoap launchd plist..."
+
+# Read source password from secrets.yaml
+SECRETS_FILE="$REPO_ROOT/secrets.yaml"
+if [ ! -f "$SECRETS_FILE" ]; then
+  warn "secrets.yaml not found — copy from secrets.yaml.example and set real passwords"
+  ICECAST_PWD="changeme"
+else
+  ICECAST_PWD=$(python3 -c "import yaml; d=yaml.safe_load(open('$SECRETS_FILE')); print(d['icecast']['source_password'])" 2>/dev/null || echo "changeme")
+fi
 
 PLIST_PATH="$HOME/Library/LaunchAgents/com.bluehour.liquidsoap.plist"
 cat > "$PLIST_PATH" <<PLIST
@@ -176,6 +203,10 @@ cat > "$PLIST_PATH" <<PLIST
   <dict>
     <key>PATH</key>
     <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    <key>RADIO_ROOT</key>
+    <string>$REPO_ROOT</string>
+    <key>ICECAST_SOURCE_PASSWORD</key>
+    <string>$ICECAST_PWD</string>
   </dict>
 </dict>
 </plist>
