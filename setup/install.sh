@@ -29,12 +29,18 @@ if ! command -v brew &>/dev/null; then
 fi
 ok "Homebrew found (prefix: $BREW_PREFIX)"
 
-if ! command -v python3 &>/dev/null; then
-  red "python3 not found"
+# kokoro→spacy→thinc→blis require Python 3.10–3.12 (use private CPython C APIs
+# removed in 3.13+). Enforce Python 3.12 via Homebrew.
+PYTHON312="$BREW_PREFIX/opt/python@3.12/bin/python3.12"
+if [ ! -f "$PYTHON312" ]; then
+  step "Installing Python 3.12 (required for kokoro/spacy dependencies)..."
+  brew install python@3.12
+fi
+if [ ! -f "$PYTHON312" ]; then
+  red "Python 3.12 not found at $PYTHON312 after install — check 'brew install python@3.12'"
   exit 1
 fi
-PYTHON_VER=$(python3 --version | awk '{print $2}')
-ok "Python $PYTHON_VER"
+ok "Python 3.12: $($PYTHON312 --version)"
 
 # ---------------------------------------------------------------------------
 # 1. ffmpeg and Icecast (Homebrew)
@@ -101,8 +107,16 @@ fi
 step "Setting up Python environment and installing packages..."
 
 VENV="$REPO_ROOT/.venv"
+# Recreate venv if it was built with the wrong Python version (e.g. 3.14).
+if [ -d "$VENV" ]; then
+  VENV_PYTHON_VER=$("$VENV/bin/python3" --version 2>/dev/null | awk '{print $2}' | cut -d. -f1,2)
+  if [ "$VENV_PYTHON_VER" != "3.12" ]; then
+    warn "Existing venv uses Python $VENV_PYTHON_VER — recreating with Python 3.12"
+    rm -rf "$VENV"
+  fi
+fi
 if [ ! -d "$VENV" ]; then
-  python3 -m venv "$VENV"
+  "$PYTHON312" -m venv "$VENV"
 fi
 source "$VENV/bin/activate"
 pip install --upgrade pip --quiet
