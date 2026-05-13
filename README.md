@@ -13,9 +13,9 @@ No royalties. No recurring cloud costs. No humans required.
 ```
 Claude CLI (scripts)
     │
-    ├─→ Music prompts → ACE-Step (local) → MP3 → radio-library/music/
-    ├─→ DJ intro scripts → Piper TTS (local) → MP3 → radio-library/dj-segments/
-    └─→ Talk show scripts → Kokoro TTS (local) → MP3 → radio-library/shows/
+    ├─→ Music prompts ──→ Music Server (ACE-Step 1.5, always warm) → MP3 → radio-library/music/
+    ├─→ DJ intro scripts → Piper TTS (local) ──────────────────────→ MP3 → radio-library/dj-segments/
+    └─→ Talk show scripts → Kokoro TTS (local) ────────────────────→ MP3 → radio-library/shows/
                                     │
                             Liquidsoap (automation)
                             ├─ Injects DJ intros before each track
@@ -28,7 +28,13 @@ Claude CLI (scripts)
                               http://your-ip:8000/live.mp3
 ```
 
-Content is generated every 6 hours by a cron job, staying 6 hours ahead of the broadcast. A watchdog cron runs every 5 minutes to restart Icecast or Liquidsoap if they crash. The pipeline is self-healing.
+### Music Server
+
+ACE-Step 1.5 is a large diffusion model (~10 GB) that takes 30–60 s to cold-start. It runs as a **persistent FastAPI server** (`music_server/server.py`) that loads once and stays warm. The generation pipeline (`generate/music_gen.py`) is a thin HTTP client — it sends a prompt and receives MP3 bytes with zero ACE-Step or MLX imports.
+
+This keeps the two environments clean: the music server owns the Apple Silicon MLX runtime; the FM radio pipeline only needs `requests`.
+
+Content is generated every 6 hours by a cron job, staying 6 hours ahead of broadcast. A watchdog cron runs every 5 minutes to restart services if they crash.
 
 ---
 
@@ -59,10 +65,11 @@ General rotation varies by time of day: upbeat folk/country in the morning, mell
 ## Requirements
 
 - **Mac Mini M-series** (Apple Silicon) — all inference runs locally
-- **Python 3.10+**
+- **Python 3.12** — required by kokoro/spacy/blis (incompatible with 3.13+)
 - **Homebrew**
 - **Claude Code** (subscription, already installed) — no extra API cost
 - **Internet** — only for Claude CLI calls and weather fetch (open-meteo.com, free)
+- **Disk** — ~15 GB free for models + audio library (ACE-Step ~10 GB, Piper + Kokoro < 1 GB)
 
 ---
 
@@ -74,7 +81,7 @@ General rotation varies by time of day: upbeat folk/country in the morning, mell
 bash setup/install.sh
 ```
 
-This installs: Liquidsoap, Icecast, ffmpeg, Piper TTS + voice model, ACE-Step, Kokoro, Python packages, and creates the Liquidsoap launchd plist.
+Installs: Liquidsoap (via OPAM), Icecast, ffmpeg, Python 3.12, Piper TTS + voice model, ACE-Step 1.5, Kokoro, FastAPI/uvicorn, and creates launchd plists for all services.
 
 ### 2. Configure secrets
 
@@ -90,32 +97,48 @@ Edit `config.yaml` and update your coordinates for weather-aware generation:
 
 ```yaml
 location:
-  latitude: 37.7749       # your latitude
-  longitude: -122.4194    # your longitude
+  latitude: 37.7749
+  longitude: -122.4194
   timezone: "America/Los_Angeles"
 ```
 
-### 4. Run the music generation benchmark
+### 4. Start the music server
 
-Before committing to the pipeline schedule, verify ACE-Step is fast enough on your machine:
+The music server loads ACE-Step 1.5 once and keeps it warm. Start it before running any generation:
+
+```bash
+bash music_server/start.sh
+```
+
+Wait for the log line `ACE-Step ready in …s` before proceeding. On first run it downloads the model (~10 GB) from HuggingFace.
+
+To run as a background service (auto-starts on boot):
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.bluehour.musicserver.plist
+```
+
+### 5. Run the music generation benchmark
+
+Verify ACE-Step is fast enough on your machine (music server must be running):
 
 ```bash
 source .venv/bin/activate
 python generate/music_gen.py --benchmark
 ```
 
-**Pass:** < 360 seconds for a 3-minute track (2× realtime) → 6-hour cron is viable.
+**Pass:** < 360 seconds for a 3-minute track (2× realtime) → 6-hour cron is viable.  
 **Fail:** > 360 seconds → edit `config.yaml`: set `cron_interval_hours: 4` and `tracks_per_batch: 8`.
 
-### 5. Generate the bootstrap library
+### 6. Generate the bootstrap library
 
-The bootstrap is a 2-hour emergency fallback — Liquidsoap uses it if the main library runs dry. Generate it once before going live. It runs overnight.
+The bootstrap is a 2-hour emergency fallback — Liquidsoap uses it if the main library runs dry. Generate it once before going live:
 
 ```bash
 bash setup/bootstrap_gen.sh
 ```
 
-### 6. First content batch
+### 7. First content batch
 
 ```bash
 source .venv/bin/activate
@@ -131,6 +154,23 @@ tail -f radio-library/logs/generation.log
 ---
 
 ## Launch
+
+### Start the music server
+
+```bash
+# Background service (auto-restarts on crash)
+launchctl load ~/Library/LaunchAgents/com.bluehour.musicserver.plist
+
+# Foreground (useful for debugging)
+bash music_server/start.sh
+```
+
+Check it's ready:
+
+```bash
+curl http://localhost:8765/health
+# → {"status":"ready","model":"acestep-v15-turbo"}
+```
 
 ### Start Icecast
 
@@ -165,8 +205,6 @@ open website/index.html
 
 The site polls Icecast for now-playing metadata every 10 seconds. The player connects directly to `localhost:8000/live.mp3`.
 
-To deploy the site publicly, update the stream URL in `website/index.html` to your public IP or tunnel address, then deploy to GitHub Pages or Netlify.
-
 ### Add cron jobs
 
 ```bash
@@ -185,19 +223,18 @@ Add:
 
 ### Disable sleep
 
-For unattended 24/7 operation:
-
 ```bash
 sudo pmset -a sleep 0 disksleep 0
 ```
-
-Or: System Settings → Energy → prevent sleep when display is off.
 
 ---
 
 ## Stopping
 
 ```bash
+# Stop music server
+launchctl unload ~/Library/LaunchAgents/com.bluehour.musicserver.plist
+
 # Stop Liquidsoap
 launchctl unload ~/Library/LaunchAgents/com.bluehour.liquidsoap.plist
 
@@ -215,10 +252,14 @@ FM-radio/
 ├── secrets.yaml.example      # template for passwords (copy → secrets.yaml)
 ├── requirements.txt
 │
+├── music_server/
+│   ├── server.py             # FastAPI server: loads ACE-Step once, POST /generate → MP3
+│   └── start.sh              # launch script (sets LM_BACKEND=mlx, MPS watermark)
+│
 ├── generate/
 │   ├── generate_batch.py     # main pipeline: weather → scripts → audio → library
 │   ├── claude_scripts.py     # calls `claude` CLI to generate prompts and scripts
-│   ├── music_gen.py          # ACE-Step wrapper + benchmark mode
+│   ├── music_gen.py          # HTTP client → music server (zero ACE-Step imports)
 │   ├── tts_gen.py            # Piper (DJ) + Kokoro (meditation guide) wrappers
 │   └── prompts/
 │       ├── music_prompt.txt      # Claude template: music generation prompts
@@ -233,23 +274,27 @@ FM-radio/
 │   └── icecast.xml           # Icecast config template (passwords injected at install)
 │
 ├── radio-library/            # generated audio (gitignored)
-│   ├── music/                # rendered tracks
-│   ├── dj-segments/          # DJ intro clips
-│   ├── shows/                # talk show episodes
-│   ├── station-ids/          # jingles (add manually)
-│   ├── bootstrap/            # emergency fallback playlist (never deleted)
-│   ├── .staging/             # atomic staging (same volume as library)
+│   ├── music/
+│   ├── dj-segments/
+│   ├── shows/
+│   ├── station-ids/
+│   ├── bootstrap/
+│   ├── .staging/
 │   └── logs/
+│       ├── generation.log
+│       ├── watchdog.log
+│       ├── liquidsoap.log
+│       └── music_server.log
 │
 ├── website/
 │   ├── index.html            # station page with stream player and now-playing
-│   └── style.css             # dark minimal aesthetic
+│   └── style.css
 │
 ├── watchdog/
 │   └── watchdog.sh           # health check, auto-restart, buffer and staleness alerts
 │
 └── setup/
-    ├── install.sh            # one-shot dependency installer + launchd plist
+    ├── install.sh            # one-shot dependency installer + launchd plists
     └── bootstrap_gen.sh      # generates 2-hour emergency fallback library
 ```
 
@@ -264,10 +309,12 @@ All tunable settings live in `config.yaml`. Key fields:
 | `pipeline.cron_interval_hours` | 6 | How often the batch runs |
 | `pipeline.tracks_per_batch` | 10 | Music tracks per run |
 | `pipeline.buffer_alert_hours` | 2 | Alert threshold for low buffer |
-| `music.generation_model` | `ace-step` | Switch to `yue` for vocal tracks |
-| `music.max_parallel` | 2 | Concurrent ACE-Step jobs |
+| `music.generation_model` | `ace-step` | Model identifier |
+| `music.max_parallel` | 2 | Concurrent generation requests to music server |
+| `music_server.host` | `127.0.0.1` | Music server host |
+| `music_server.port` | `8765` | Music server port |
 | `dj.voice` | `piper` | TTS engine for DJ (piper or kokoro) |
-| `kokoro.speed` | 0.9 | Slightly slower for meditation delivery |
+| `kokoro.speed` | `0.9` | Slightly slower for meditation delivery |
 | `location.latitude/longitude` | SF defaults | Update to your coordinates |
 
 ---
@@ -279,13 +326,14 @@ All tunable settings live in `config.yaml`. Key fields:
 | `radio-library/logs/generation.log` | JSON lines: each batch run, per-file status, buffer depth |
 | `radio-library/logs/watchdog.log` | JSON lines: heartbeat, restarts, buffer alerts |
 | `radio-library/logs/liquidsoap.log` | Liquidsoap stdout/stderr |
+| `radio-library/logs/music_server.log` | ACE-Step server: model load, generation requests, errors |
 
 ```bash
+# Watch music server in real time
+tail -f radio-library/logs/music_server.log
+
 # Watch generation in real time
 tail -f radio-library/logs/generation.log | python3 -m json.tool
-
-# Watch watchdog
-tail -f radio-library/logs/watchdog.log | python3 -m json.tool
 ```
 
 ---
@@ -306,6 +354,16 @@ tail -f radio-library/logs/watchdog.log | python3 -m json.tool
 
 ## Troubleshooting
 
+**Music server OOM on Apple Silicon**
+- Quit other apps to free unified memory — the model needs ~5–6 GB
+- Check available memory: `vm_stat | grep free`
+- `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0` is already set by `start.sh` (disables the 80% cap)
+
+**Music server not ready**
+- Check log: `tail -f radio-library/logs/music_server.log`
+- First run downloads ~10 GB — wait for `ACE-Step ready` log line
+- Health check: `curl http://localhost:8765/health`
+
 **Stream plays silence or cuts out**
 - Check buffer: `du -sh radio-library/music/` — if near empty, run `generate_batch.py` manually
 - Liquidsoap falls back to `radio-library/bootstrap/` automatically
@@ -314,12 +372,8 @@ tail -f radio-library/logs/watchdog.log | python3 -m json.tool
 - Run `claude --version` to verify the session is active
 - Re-authenticate with `claude` if needed
 
-**ACE-Step is slow / generation can't keep up**
-- Run the benchmark: `python generate/music_gen.py --benchmark`
-- If failing: set `cron_interval_hours: 4` and `tracks_per_batch: 8` in `config.yaml`
-
 **Icecast won't start**
-- Check config: `icecast -c /usr/local/etc/icecast.xml -v`
+- Check config: `icecast -c /opt/homebrew/etc/icecast.xml -v`
 - Re-run `setup/install.sh` to regenerate the config with correct passwords
 
 **"Now Playing" stuck on "Connecting…"**
