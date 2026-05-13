@@ -21,9 +21,9 @@ mkdir -p "$BOOTSTRAP_DIR"
 blue()  { printf '\033[34m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 
-# 2 hours @ ~3 min/track = 40 tracks needed for coverage
-# We generate 24 tracks: 8 per mood block (morning/evening/night)
-# This gives ~72 minutes of music — supplement with real generation ASAP.
+# Target: ~2 hours of fallback audio using 90 s tracks.
+# 24 tracks × 90 s = 36 min. Run twice (re-run is safe, skips existing) for ~72 min.
+# At 3.6× realtime a 90 s track takes ~325 s → 24 tracks ≈ 2.2 h total.
 # Generate more by re-running this script (tracks accumulate).
 
 TRACKS=(
@@ -81,7 +81,7 @@ for i in "${!TRACKS[@]}"; do
   echo "  [$idx/$total] Generating: $filename"
   echo "            Prompt: ${prompt:0:60}..."
 
-  if "$PYTHON" "$REPO_ROOT/generate/music_gen.py" "$prompt" "$output"; then
+  if "$PYTHON" "$REPO_ROOT/generate/music_gen.py" "$prompt" "$output" 90; then
     echo "            OK"
     success=$((success + 1))
   else

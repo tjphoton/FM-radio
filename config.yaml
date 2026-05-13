@@ -35,12 +35,15 @@ location:
   timezone: "America/Los_Angeles"
 
 # Generation pipeline
+# Mac Mini M2 (8 GB) generates a 90 s track in ~325 s (3.6x realtime).
+# 8 tracks × 325 s = ~44 min/batch → comfortably fits a 4h cron window.
 pipeline:
-  cron_interval_hours: 6           # how often generate_batch.py runs
-  buffer_target_hours: 6           # hours of audio to keep ahead
-  buffer_alert_hours: 2            # alert if buffer drops below this
-  tracks_per_batch: 10             # music tracks per generation run
-  dj_segments_per_batch: 10        # DJ intro clips per generation run
+  cron_interval_hours: 4           # how often generate_batch.py runs
+  buffer_target_hours: 4           # hours of audio to keep ahead
+  buffer_alert_hours: 1            # alert if buffer drops below this
+  tracks_per_batch: 8              # music tracks per generation run
+  track_duration_seconds: 90       # shorter tracks → faster generation, more variety
+  dj_segments_per_batch: 8         # DJ intro clips per generation run
   talkshows_per_batch: 1           # talk show episodes per run
 
 # Paths (relative to repo root; expand in code with os.path)

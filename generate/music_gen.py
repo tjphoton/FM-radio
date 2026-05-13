@@ -68,8 +68,12 @@ def generate_track(
     log.info("Generating track via music server: %s", output_path.name)
     start = time.monotonic()
 
+    # Allow 6× realtime plus a 5-minute overhead for model scheduling / VAE decode.
+    # A 180 s track on a Mac Mini M2 takes ~650 s; a flat 600 s cap reliably kills it.
+    http_timeout = duration_seconds * 6 + 300
+
     try:
-        resp = requests.post(url, json=payload, timeout=600)
+        resp = requests.post(url, json=payload, timeout=http_timeout)
     except requests.ConnectionError:
         log.error(
             "Music server not reachable at %s — start it with: bash music_server/start.sh",
@@ -77,7 +81,11 @@ def generate_track(
         )
         return False
     except requests.Timeout:
-        log.error("Music server timed out after 600s for %s", output_path.name)
+        log.error(
+            "Music server timed out after %ds for %s",
+            http_timeout,
+            output_path.name,
+        )
         return False
 
     if not resp.ok:
@@ -124,12 +132,13 @@ def benchmark(cfg: dict) -> None:
         )
         return
 
-    print("Running ACE-Step 1.5 benchmark (3-minute track, turbo mode)...")
+    track_dur = cfg.get("pipeline", {}).get("track_duration_seconds", 90)
+    print(f"Running ACE-Step 1.5 benchmark ({track_dur}s track, turbo mode)...")
     start = time.monotonic()
     ok = generate_track(
         prompt="Soft jazz piano trio, slow ballad, intimate late-night feel, brushed drums",
         output_path=test_path,
-        duration_seconds=180,
+        duration_seconds=track_dur,
         genre="jazz",
         bpm=65,
         cfg=cfg,
@@ -137,11 +146,14 @@ def benchmark(cfg: dict) -> None:
     elapsed = time.monotonic() - start
 
     if ok:
-        print(f"\nBenchmark result: {elapsed:.1f}s total for a 180s track ({elapsed/180:.2f}x realtime)")
-        if elapsed <= 360:
-            print("PASS — 6h cron is viable (< 2x realtime)")
+        ratio = elapsed / track_dur
+        print(f"\nBenchmark result: {elapsed:.1f}s for a {track_dur}s track ({ratio:.2f}x realtime)")
+        # At 4h cron with 8 × 90 s tracks: need each track < 4h/8 = 1800s (20× realtime)
+        # Practical target: < 5× realtime to leave headroom for TTS and Claude calls
+        if ratio <= 5.0:
+            print("PASS — 4h cron with 8 × 90 s tracks is viable")
         else:
-            print("FAIL — switch to 4h cron with 8 shorter tracks + bootstrap supplement")
+            print("WARN — generation is slow; reduce tracks_per_batch or track_duration_seconds in config.yaml")
         test_path.unlink(missing_ok=True)
     else:
         print("Benchmark FAILED — check music server logs")
@@ -156,11 +168,12 @@ if __name__ == "__main__":
     elif len(sys.argv) >= 3:
         prompt = sys.argv[1]
         out = Path(sys.argv[2])
-        ok = generate_track(prompt, out, cfg=cfg)
+        duration = int(sys.argv[3]) if len(sys.argv) >= 4 else 90
+        ok = generate_track(prompt, out, duration_seconds=duration, cfg=cfg)
         sys.exit(0 if ok else 1)
     else:
         print("Usage:")
         print("  python music_gen.py --benchmark")
-        print('  python music_gen.py "prompt text" /path/to/output.mp3')
+        print('  python music_gen.py "prompt text" /path/to/output.mp3 [duration_seconds]')
         print()
         print("The music server must be running: bash music_server/start.sh")
