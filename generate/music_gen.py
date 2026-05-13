@@ -30,7 +30,6 @@ def _get_handler():
     global _dit_handler
     if _dit_handler is None:
         from acestep.handler import AceStepHandler
-        from acestep.core.generation.handler.init_service_orchestrator import InitServiceMixin  # noqa: ensure mixin loaded
 
         handler = AceStepHandler()
         # "acestep-v15-turbo" downloads ~4 GB on first run to ~/.cache/ace-step/
