@@ -127,7 +127,9 @@ pip install --quiet \
   soundfile \
   numpy \
   kokoro \
-  piper-tts
+  piper-tts \
+  "fastapi>=0.111" \
+  "uvicorn>=0.29"
 
 # ace-step PyPI package has a broken sdist (setup.py reads requirements.txt
 # that isn't bundled). Install from GitHub source instead.
@@ -266,6 +268,54 @@ ok "Liquidsoap plist installed at $PLIST_PATH"
 echo "  To start: launchctl load $PLIST_PATH"
 
 # ---------------------------------------------------------------------------
+# 10. Launchd plist for Music Server (ACE-Step)
+# ---------------------------------------------------------------------------
+step "Installing Music Server launchd plist..."
+
+MUSIC_SERVER_LOG="$REPO_ROOT/radio-library/logs/music_server.log"
+MUSIC_PLIST_PATH="$HOME/Library/LaunchAgents/com.bluehour.musicserver.plist"
+cat > "$MUSIC_PLIST_PATH" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.bluehour.musicserver</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$VENV/bin/python</string>
+    <string>$REPO_ROOT/music_server/server.py</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8765</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$MUSIC_SERVER_LOG</string>
+  <key>StandardErrorPath</key>
+  <string>$MUSIC_SERVER_LOG</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTORCH_MPS_HIGH_WATERMARK_RATIO</key>
+    <string>0.0</string>
+    <key>LM_BACKEND</key>
+    <string>mlx</string>
+    <key>PATH</key>
+    <string>$BREW_PREFIX/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+PLIST
+
+touch "$MUSIC_SERVER_LOG"
+ok "Music server plist installed at $MUSIC_PLIST_PATH"
+echo "  To start: launchctl load $MUSIC_PLIST_PATH"
+
+# ---------------------------------------------------------------------------
 # 10. Cron entries reminder
 # ---------------------------------------------------------------------------
 cat <<CRON_MSG
@@ -285,7 +335,10 @@ echo ""
 echo "Next steps:"
 echo "  1. Run: bash setup/bootstrap_gen.sh  (generates 2h emergency fallback)"
 echo "  2. Update config.yaml with your actual GPS coordinates"
-echo "  3. Start Icecast: brew services start icecast"
-echo "  4. Start Liquidsoap: launchctl load $PLIST_PATH"
-echo "  5. Test stream: curl -I http://localhost:8000/live.mp3"
-echo "  6. Run first batch: $VENV/bin/python generate/generate_batch.py"
+echo "  3. Start Music Server: launchctl load $MUSIC_PLIST_PATH"
+echo "     (or foreground: bash music_server/start.sh)"
+echo "  4. Benchmark: $VENV/bin/python generate/music_gen.py --benchmark"
+echo "  5. Start Icecast: brew services start icecast"
+echo "  6. Start Liquidsoap: launchctl load $PLIST_PATH"
+echo "  7. Test stream: curl -I http://localhost:8000/live.mp3"
+echo "  8. Run first batch: $VENV/bin/python generate/generate_batch.py"

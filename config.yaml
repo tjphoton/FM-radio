@@ -64,6 +64,12 @@ kokoro:
   model: "af_sky"                  # soft, calm female voice for meditation
   speed: 0.9                       # slightly slower for relaxed delivery
 
+# Music generation server (music_server/server.py)
+# Start with: bash music_server/start.sh
+music_server:
+  host: "127.0.0.1"
+  port: 8765
+
 # Icecast streaming
 icecast:
   host: "localhost"

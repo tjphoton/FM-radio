@@ -4,5 +4,7 @@ numpy>=1.24
 soundfile>=0.12
 kokoro>=0.7
 piper-tts
+fastapi>=0.111
+uvicorn>=0.29
 # ace-step: install from the 1.5 source repo (includes MLX support for Apple Silicon):
 # pip install git+https://github.com/ace-step/ACE-Step-1.5.git

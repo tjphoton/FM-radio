@@ -1,24 +1,22 @@
 """
-ACE-Step 1.5 music generation wrapper.
+Music generation client for Blue Hour Radio.
 
-Uses the ACE-Step 1.5 Python API directly (AceStepHandler + generate_music).
-Runs in turbo mode (8 steps) with MLX acceleration on Apple Silicon.
+Sends requests to the music_server (localhost:8765) which keeps ACE-Step 1.5
+loaded in a separate process. This module has zero ACE-Step / MLX imports.
 """
 
 import logging
-import os
 import sys
 import time
 from pathlib import Path
 
+import requests
 import yaml
 
 log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).parent.parent
-
-# Lazy singleton: avoid model load at import time.
-_dit_handler = None
+_SERVER_URL = None  # resolved lazily from config
 
 
 def load_config() -> dict:
@@ -26,30 +24,22 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
-def _get_handler():
-    global _dit_handler
-    if _dit_handler is None:
-        # MPS default watermark is 0.8 × available RAM (~9 GB on 16 GB machines).
-        # The turbo DiT alone exceeds that threshold; disable the cap so MPS can
-        # use unified memory freely. The OS will page if truly out of RAM.
-        os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+def _server_url(cfg: dict | None = None) -> str:
+    global _SERVER_URL
+    if _SERVER_URL is None:
+        cfg = cfg or load_config()
+        host = cfg.get("music_server", {}).get("host", "127.0.0.1")
+        port = cfg.get("music_server", {}).get("port", 8765)
+        _SERVER_URL = f"http://{host}:{port}"
+    return _SERVER_URL
 
-        from acestep.handler import AceStepHandler
 
-        handler = AceStepHandler()
-        # ACE-Step auto-detects Apple Silicon and applies MLX optimizations.
-        # use_mlx_dit=True ensures the MLX DiT backend is preferred over MPS/torch.
-        status, ok = handler.initialize_service(
-            project_root=None,
-            config_path="acestep-v15-turbo",
-            device="auto",
-            use_mlx_dit=True,
-        )
-        if not ok:
-            raise RuntimeError(f"ACE-Step failed to initialize: {status}")
-        log.info("ACE-Step 1.5 initialized: %s", status)
-        _dit_handler = handler
-    return _dit_handler
+def server_healthy(cfg: dict | None = None) -> bool:
+    try:
+        r = requests.get(f"{_server_url(cfg)}/health", timeout=3)
+        return r.ok and r.json().get("status") == "ready"
+    except Exception:
+        return False
 
 
 def generate_track(
@@ -58,87 +48,66 @@ def generate_track(
     duration_seconds: int = 180,
     genre: str = "jazz",
     bpm: int = 80,
+    cfg: dict | None = None,
 ) -> bool:
     """
-    Generate a music track using ACE-Step 1.5.
+    Request a music track from the music server and save it to output_path.
 
-    Saves an MP3 directly to output_path.
     Returns True on success, False on failure.
     """
-    from acestep.inference import GenerationConfig, GenerationParams, generate_music
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Enrich prompt with genre tag if not already mentioned
-    full_prompt = prompt
-    if genre and genre.lower() not in prompt.lower():
-        full_prompt = f"{genre}, {full_prompt}"
+    url = f"{_server_url(cfg)}/generate"
+    payload = {
+        "prompt": prompt,
+        "duration": duration_seconds,
+        "genre": genre,
+        "bpm": bpm if bpm else None,
+    }
 
-    log.info("Generating track: %s", output_path.name)
+    log.info("Generating track via music server: %s", output_path.name)
     start = time.monotonic()
 
-    # Use a temp dir so generate_music can save the UUID-named file,
-    # then we rename it to the caller's desired path.
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        try:
-            params = GenerationParams(
-                caption=full_prompt,
-                lyrics="[Instrumental]",
-                duration=float(duration_seconds),
-                bpm=bpm if bpm else None,
-                inference_steps=8,       # turbo mode
-                thinking=False,           # skip LLM reasoning — not needed for bg music
-                enable_normalization=True,
-            )
-            config = GenerationConfig(
-                batch_size=1,
-                use_random_seed=True,
-                audio_format="mp3",
-                mp3_bitrate="192k",
-                mp3_sample_rate=44100,
-            )
+    try:
+        resp = requests.post(url, json=payload, timeout=600)
+    except requests.ConnectionError:
+        log.error(
+            "Music server not reachable at %s — start it with: bash music_server/start.sh",
+            url,
+        )
+        return False
+    except requests.Timeout:
+        log.error("Music server timed out after 600s for %s", output_path.name)
+        return False
 
-            handler = _get_handler()
-            result = generate_music(
-                dit_handler=handler,
-                llm_handler=None,
-                params=params,
-                config=config,
-                save_dir=tmp_dir,
-            )
+    if not resp.ok:
+        log.error("Music server error %d for %s: %s", resp.status_code, output_path.name, resp.text[:300])
+        return False
 
-            if not result.success or not result.audios:
-                log.error("ACE-Step generation failed for %s: %s", output_path.name, result.error)
-                return False
+    if len(resp.content) < 10_000:
+        log.error("Music server returned suspiciously small response (%d bytes)", len(resp.content))
+        return False
 
-            saved_path = result.audios[0].get("path", "")
-            if not saved_path or not Path(saved_path).exists():
-                log.error("ACE-Step produced no output file for %s", output_path.name)
-                return False
-
-            # Move out of temp dir before it's cleaned up
-            import shutil
-            shutil.copy2(saved_path, output_path)
-
-        except Exception as exc:
-            log.error("Unexpected error generating %s: %s", output_path.name, exc, exc_info=True)
-            return False
+    output_path.write_bytes(resp.content)
 
     elapsed = time.monotonic() - start
+    server_elapsed = float(resp.headers.get("X-Elapsed", elapsed))
     log.info(
-        "Track generated in %.1fs (%.1fx realtime): %s",
+        "Track saved in %.1fs (server: %.1fs, %.2fx realtime): %s",
         elapsed,
-        elapsed / duration_seconds,
+        server_elapsed,
+        server_elapsed / duration_seconds,
         output_path.name,
     )
-    if elapsed > duration_seconds * 2:
+
+    if server_elapsed > duration_seconds * 2:
         log.warning(
-            "BENCHMARK WARNING: %.1fs > 2x realtime for %ds track. "
-            "Consider switching to 4h cron + 8 shorter tracks.",
-            elapsed,
+            "Server took %.1fs for a %ds track (> 2x realtime). "
+            "Consider switching to 4h cron with 8 shorter tracks.",
+            server_elapsed,
             duration_seconds,
         )
+
     return True
 
 
@@ -147,8 +116,15 @@ def benchmark(cfg: dict) -> None:
     staging.mkdir(parents=True, exist_ok=True)
     test_path = staging / "benchmark_track.mp3"
 
+    print(f"Checking music server at {_server_url(cfg)}...")
+    if not server_healthy(cfg):
+        print(
+            "ERROR: Music server is not running or not ready.\n"
+            "Start it first: bash music_server/start.sh"
+        )
+        return
+
     print("Running ACE-Step 1.5 benchmark (3-minute track, turbo mode)...")
-    print("First run will download the model (~4 GB) — this may take several minutes.")
     start = time.monotonic()
     ok = generate_track(
         prompt="Soft jazz piano trio, slow ballad, intimate late-night feel, brushed drums",
@@ -156,18 +132,19 @@ def benchmark(cfg: dict) -> None:
         duration_seconds=180,
         genre="jazz",
         bpm=65,
+        cfg=cfg,
     )
     elapsed = time.monotonic() - start
 
     if ok:
-        print(f"\nBenchmark result: {elapsed:.1f}s for a 180s track ({elapsed/180:.2f}x realtime)")
+        print(f"\nBenchmark result: {elapsed:.1f}s total for a 180s track ({elapsed/180:.2f}x realtime)")
         if elapsed <= 360:
             print("PASS — 6h cron is viable (< 2x realtime)")
         else:
             print("FAIL — switch to 4h cron with 8 shorter tracks + bootstrap supplement")
         test_path.unlink(missing_ok=True)
     else:
-        print("Benchmark FAILED — check logs above")
+        print("Benchmark FAILED — check music server logs")
 
 
 if __name__ == "__main__":
@@ -179,9 +156,11 @@ if __name__ == "__main__":
     elif len(sys.argv) >= 3:
         prompt = sys.argv[1]
         out = Path(sys.argv[2])
-        ok = generate_track(prompt, out)
+        ok = generate_track(prompt, out, cfg=cfg)
         sys.exit(0 if ok else 1)
     else:
         print("Usage:")
         print("  python music_gen.py --benchmark")
         print('  python music_gen.py "prompt text" /path/to/output.mp3')
+        print()
+        print("The music server must be running: bash music_server/start.sh")
