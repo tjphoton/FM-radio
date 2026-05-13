@@ -304,6 +304,8 @@ cat > "$MUSIC_PLIST_PATH" <<PLIST
     <string>0.0</string>
     <key>LM_BACKEND</key>
     <string>mlx</string>
+    <key>ACESTEP_GENERATION_TIMEOUT</key>
+    <string>1200</string>
     <key>PATH</key>
     <string>$BREW_PREFIX/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>

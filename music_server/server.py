@@ -24,6 +24,9 @@ from pathlib import Path
 os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 # Route ACE-Step to the MLX backend on Apple Silicon.
 os.environ.setdefault("LM_BACKEND", "mlx")
+# ACE-Step's internal per-generation timeout (default 600 s kills slow hardware).
+# Allow 20 min; the HTTP client has its own timeout per request.
+os.environ.setdefault("ACESTEP_GENERATION_TIMEOUT", "1200")
 
 import uvicorn
 from fastapi import FastAPI, HTTPException

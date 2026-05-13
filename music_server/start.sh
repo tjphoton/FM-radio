@@ -22,6 +22,8 @@ fi
 # MLX backend for Apple Silicon; disables MPS watermark cap
 export LM_BACKEND=mlx
 export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
+# Allow 20 min per generation (default 600 s is too short on Mac Mini M2 8 GB)
+export ACESTEP_GENERATION_TIMEOUT=1200
 
 exec "$VENV/bin/python" "$REPO_ROOT/music_server/server.py" \
   --host 127.0.0.1 \
