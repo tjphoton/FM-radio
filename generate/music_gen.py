@@ -29,16 +29,22 @@ def load_config() -> dict:
 def _get_handler():
     global _dit_handler
     if _dit_handler is None:
+        # MPS default watermark is 0.8 × available RAM (~9 GB on 16 GB machines).
+        # The turbo DiT alone exceeds that threshold; disable the cap so MPS can
+        # use unified memory freely. The OS will page if truly out of RAM.
+        os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+
         from acestep.handler import AceStepHandler
 
         handler = AceStepHandler()
-        # "acestep-v15-turbo" downloads ~4 GB on first run to ~/.cache/ace-step/
-        # use_mlx_dit=True enables MLX acceleration on Apple Silicon (M-series)
+        # cpu_offload=True streams model layers CPU↔MPS so peak GPU memory stays lower.
+        # use_mlx_dit=True enables native MLX acceleration on Apple Silicon.
         status, ok = handler.initialize_service(
             project_root=None,
             config_path="acestep-v15-turbo",
             device="auto",
             use_mlx_dit=True,
+            cpu_offload=True,
         )
         if not ok:
             raise RuntimeError(f"ACE-Step failed to initialize: {status}")
