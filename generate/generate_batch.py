@@ -17,7 +17,7 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 
 import yaml
@@ -59,7 +59,7 @@ def _log_entry(log_path: Path, entry: dict) -> None:
 
 def _log_event(log_path: Path, status: str, item_type: str, name: str, error: str = "") -> None:
     entry = {
-        "ts": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "status": status,
         "type": item_type,
         "name": name,
@@ -88,23 +88,6 @@ def _atomic_move(src: Path, dst_dir: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Buffer check
 # ---------------------------------------------------------------------------
-
-def _estimate_audio_hours(music_dir: Path, bootstrap_dir: Path) -> float:
-    """
-    Rough estimate of buffered audio hours by summing MP3 sizes.
-    Assumes ~1MB per minute at 128kbps (conservative).
-    """
-    total_bytes = 0
-    for d in (music_dir, bootstrap_dir):
-        if d.exists():
-            for f in d.glob("*.mp3"):
-                total_bytes += f.stat().st_size
-    mb = total_bytes / (1024 * 1024)
-    return mb / 1.0  # ~1 MB/min → hours = MB/60... use actual: 128kbps=1MB/min
-    # 128kbps * 60s = 7.68MB/min → 1 hour = ~460MB
-    # Simpler conservative estimate: 1MB = ~1 min = 1/60 hour
-    return mb / 60.0
-
 
 def estimate_audio_hours(music_dir: Path, bootstrap_dir: Path) -> float:
     total_bytes = 0
@@ -152,13 +135,14 @@ def run_batch(cfg: dict, dry_run: bool = False) -> dict:
 
     pipeline_cfg = cfg["pipeline"]
     tracks_count = pipeline_cfg["tracks_per_batch"]
+    track_duration = pipeline_cfg.get("track_duration_seconds", 90)
     dj_count = pipeline_cfg["dj_segments_per_batch"]
     max_parallel = cfg["music"]["max_parallel"]
 
-    batch_ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    batch_ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     results = {"success": [], "failed": [], "ts": batch_ts}
 
-    _log_entry(log_path, {"ts": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), "event": "batch_start"})
+    _log_entry(log_path, {"ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), "event": "batch_start"})
 
     # Step 0: context
     log.info("=== Batch %s ===", batch_ts)
@@ -213,7 +197,7 @@ def run_batch(cfg: dict, dry_run: bool = False) -> dict:
         ok = generate_track(
             prompt=item["prompt"],
             output_path=stage_path,
-            duration_seconds=180,
+            duration_seconds=track_duration,
             genre=item.get("genre", "jazz"),
             bpm=item.get("bpm_estimate", 80),
         )
@@ -282,13 +266,13 @@ def run_batch(cfg: dict, dry_run: bool = False) -> dict:
         log.warning(msg)
         _mac_notify("Blue Hour Radio — Buffer Alert", msg)
         _log_entry(log_path, {
-            "ts": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "event": "buffer_alert",
             "hours": hours_buffered,
         })
 
     _log_entry(log_path, {
-        "ts": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "event": "batch_done",
         "ok": len(results["success"]),
         "failed": len(results["failed"]),

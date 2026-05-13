@@ -145,6 +145,18 @@ def _call_claude(prompt: str, timeout: int = 120) -> str:
     return result.stdout.strip()
 
 
+def _strip_fences(raw: str) -> str:
+    """Strip markdown code fences that Claude sometimes wraps JSON output in."""
+    raw = raw.strip()
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        # drop first line (```json or ```) and last line (```)
+        start = 1
+        end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
+        raw = "\n".join(lines[start:end])
+    return raw.strip()
+
+
 def _render_template(template_path: Path, vars: dict[str, Any]) -> str:
     text = template_path.read_text()
     for key, value in vars.items():
@@ -184,7 +196,7 @@ def generate_music_prompts(
     raw = _call_claude(prompt)
 
     try:
-        prompts = json.loads(raw)
+        prompts = json.loads(_strip_fences(raw))
         if not isinstance(prompts, list):
             raise ValueError("Expected JSON array")
         return prompts
@@ -226,7 +238,7 @@ def generate_dj_intros(
     raw = _call_claude(prompt)
 
     try:
-        intros = json.loads(raw)
+        intros = json.loads(_strip_fences(raw))
         if not isinstance(intros, list):
             raise ValueError("Expected JSON array")
         return intros

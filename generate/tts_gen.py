@@ -62,6 +62,9 @@ def synthesize_dj(
     clean_text = _clean_for_tts(text)
 
     try:
+        # Timeout scales with text length: ~200 chars/s for Piper on M-series,
+        # plus 60 s fixed overhead. A 5000-char show script needs ~90 s.
+        piper_timeout = max(120, len(clean_text) // 3 + 60)
         proc = subprocess.run(
             [
                 piper_bin,
@@ -71,7 +74,7 @@ def synthesize_dj(
             input=clean_text,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=piper_timeout,
         )
         if proc.returncode != 0:
             log.error("Piper failed: %s", proc.stderr[-300:])
@@ -87,7 +90,7 @@ def synthesize_dj(
         return True
 
     except subprocess.TimeoutExpired:
-        log.error("Piper timed out for %s", output_path.name)
+        log.error("Piper timed out after %ds for %s", piper_timeout, output_path.name)
         tmp_wav.unlink(missing_ok=True)
         return False
     except Exception as exc:
