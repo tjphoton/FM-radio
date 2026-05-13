@@ -113,10 +113,13 @@ pip install --quiet \
   soundfile \
   numpy \
   kokoro \
-  ace-step \
   piper-tts
 
-ok "Python packages installed (including piper-tts)"
+# ace-step PyPI package has a broken sdist (setup.py reads requirements.txt
+# that isn't bundled). Install from GitHub source instead.
+pip install --quiet "git+https://github.com/ace-step/ACE-Step.git"
+
+ok "Python packages installed (including piper-tts, ace-step)"
 
 PIPER_BIN="$VENV/bin/piper"
 if [ -f "$PIPER_BIN" ]; then

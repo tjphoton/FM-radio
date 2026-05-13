@@ -3,4 +3,6 @@ requests>=2.28
 numpy>=1.24
 soundfile>=0.12
 kokoro>=0.7
-ace-step>=0.1
+piper-tts
+# ace-step PyPI package is broken; install from source:
+# pip install git+https://github.com/ace-step/ACE-Step.git
