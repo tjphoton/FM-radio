@@ -51,6 +51,11 @@ def synthesize_dj(
         )
         return False
 
+    # piper-tts is installed into the project venv; prefer the venv binary so
+    # this works even when the venv isn't activated in the calling shell.
+    venv_piper = REPO_ROOT / ".venv" / "bin" / "piper"
+    piper_bin = str(venv_piper) if venv_piper.exists() else "piper"
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_wav = output_path.with_suffix(".tmp.wav")
 
@@ -59,7 +64,7 @@ def synthesize_dj(
     try:
         proc = subprocess.run(
             [
-                "piper",
+                piper_bin,
                 "--model", str(model_path),
                 "--output_file", str(tmp_wav),
             ],
