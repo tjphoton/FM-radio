@@ -3,7 +3,7 @@
 # Runs every 5 minutes via cron or launchd.
 #
 # Cron entry (add with: crontab -e):
-#   */5 * * * * RADIO_ROOT/watchdog/watchdog.sh >> RADIO_ROOT/radio-library/logs/watchdog.log 2>&1
+#   */5 * * * * /path/to/FM-radio/watchdog/watchdog.sh >> /path/to/FM-radio/radio-library/logs/watchdog.log 2>&1
 #
 # Checks:
 #   1. Icecast stream health (HTTP 200 on stats endpoint)
@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="RADIO_ROOT"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG="$REPO_ROOT/radio-library/logs/watchdog.log"
 ICECAST_URL="http://localhost:8000/status-json.xsl"
 ICECAST_STREAM_URL="http://localhost:8000/live.mp3"
